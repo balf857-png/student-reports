@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سامانه گزارش کار دانش‌آموزان</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chart.js">
+<style>
+  body { font-family: Tahoma, sans-serif; background: #f0f2f5; margin:0; padding:0; }
+  header { background:#007BFF;color:#fff;padding:20px;text-align:center;font-size:1.5em; }
+  section { padding:20px; max-width:1000px; margin:auto; }
+  form { background:#fff;padding:20px;border-radius:10px;box-shadow:0 4px 8px rgba(0,0,0,0.1); margin-bottom:30px; }
+  input, textarea, button { width:100%;padding:10px;margin:10px 0;border-radius:5px;border:1px solid #ccc; }
+  button { background:#007BFF;color:#fff;border:none;cursor:pointer; }
+  button:hover { background:#0056b3; }
+  #cardsContainer { display:flex; flex-wrap:wrap; gap:20px; justify-content:center; }
+  .card { background:#fff;border-radius:10px;box-shadow:0 4px 8px rgba(0,0,0,0.1); padding:20px; width:250px; }
+  .card h3 { margin:0 0 10px 0; }
+  .card p { margin:5px 0; color:#555; }
+  #downloadButtons { margin:20px 0; display:flex; gap:10px; }
+</style>
+</head>
+<body>
+
+<header>سامانه گزارش کار دانش‌آموزان</header>
+
+<section id="studentSection">
+  <h2>ثبت گزارش کار</h2>
+  <form id="reportForm">
+    <input type="text" name="name" placeholder="نام و نام خانوادگی" required>
+    <input type="date" name="date" required>
+    <textarea name="desc" placeholder="توضیح کار" rows="4" required></textarea>
+    <button type="submit">ارسال گزارش</button>
+  </form>
+</section>
+
+<section id="managerSection" style="display:none;">
+  <h2>داشبورد مدیر</h2>
+  <input type="text" id="search" placeholder="جستجو بر اساس نام یا تاریخ">
+  <div id="downloadButtons">
+    <button id="downloadExcel">دانلود Excel</button>
+    <button id="downloadPDF">دانلود PDF</button>
+  </div>
+  <div id="cardsContainer"></div>
+  <h2>نمودار تعداد گزارش‌ها بر اساس تاریخ</h2>
+  <canvas id="chart" width="400" height="150"></canvas>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+const sheetURL = "https://script.google.com/macros/s/AKfycbzRrdZgUsx6Xow5NGAy3nVBWhjcy19Tmq7Za19FD31b1EPHLd-uLX3468impdpwBseR/exec"; // حتماً لینک Web App خود را جایگزین کنید
+const reportForm = document.getElementById("reportForm");
+const cardsContainer = document.getElementById("cardsContainer");
+const searchInput = document.getElementById("search");
+const downloadExcelBtn = document.getElementById("downloadExcel");
+const downloadPDFBtn = document.getElementById("downloadPDF");
+let reports = [];
+
+// بررسی نقش کاربر
+const params = new URLSearchParams(window.location.search);
+const role = params.get('role');
+if(role==='manager'){
+  document.getElementById("studentSection").style.display="none";
+  document.getElementById("managerSection").style.display="block";
+}
+
+// ارسال فرم
+reportForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const formData = new FormData(reportForm);
+  const data = {};
+  formData.forEach((v,k)=>data[k]=v);
+  await fetch(sheetURL, {method:"POST",body:JSON.stringify(data),headers:{'Content-Type':'application/json'}});
+  alert("گزارش ثبت شد!");
+  reportForm.reset();
+});
+
+// بارگذاری گزارش‌ها
+async function loadReports() {
+  const res = await fetch(sheetURL);
+  reports = await res.json();
+  if(role==='manager'){
+    displayReports(reports);
+    drawChart(reports);
+  }
+}
+loadReports();
+
+function displayReports(data){
+  const query = searchInput.value.toLowerCase();
+  const filtered = data.filter(r=>r.name.toLowerCase().includes(query) || r.date.includes(query));
+  cardsContainer.innerHTML = "";
+  filtered.forEach(r=>{
+    const card = document.createElement("div");
+    card.className="card";
+    card.innerHTML=`<h3>${r.name}</h3><p><b>تاریخ:</b> ${r.date}</p><p>${r.desc}</p>`;
+    cardsContainer.appendChild(card);
+  });
+}
+
+searchInput?.addEventListener("input",()=>displayReports(reports));
+
+// نمودار
+function drawChart(data){
+  const counts = {};
+  data.forEach(r=>counts[r.date]=(counts[r.date]||0)+1);
+  const labels = Object.keys(counts).sort();
+  const values = labels.map(l=>counts[l]);
+  const ctx=document.getElementById('chart').getContext('2d');
+  if(window.chartInstance) window.chartInstance.destroy();
+  window.chartInstance=new Chart(ctx,{
+    type:'bar',
+    data:{labels, datasets:[{label:"تعداد گزارش‌ها", data:values, backgroundColor:"#007BFF"}]},
+    options:{responsive:true, scales:{y:{beginAtZero:true}}}
+  });
+}
+
+// دانلود Excel
+downloadExcelBtn?.addEventListener("click",()=>{
+  const ws = XLSX.utils.json_to_sheet(reports);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "گزارش‌ها");
+  XLSX.writeFile(wb, "گزارش‌ها.xlsx");
+});
+
+// دانلود PDF
+downloadPDFBtn?.addEventListener("click",()=>{
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  reports.forEach((r,i)=>{
+    doc.text(`${i+1}. ${r.name} - ${r.date}\n${r.desc}`, 10, 10 + i*20);
+  });
+  doc.save("گزارش‌ها.pdf");
+});
+</script>
+
+</body>
+</html>
